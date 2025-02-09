@@ -214,7 +214,7 @@ def create_metadata():
     # create metadata buffer
     builder = flatbuffers.Builder(0)
     metadata_buf = metadata_model.Pack(builder)
-    builder.Finish(metadata_buf)
+    builder.Finish(metadata_buf, _metadata.MetadataPopulator.METADATA_FILE_IDENTIFIER)
     return bytes(builder.Output())
 
 def add_metadata_to_model(model_buffer):
