@@ -204,7 +204,7 @@ def create_metadata():
     world_landmarks_meta.stats = _metadata_fb.StatsT()
     
     # add all output metadata to list
-    output_metas.extend([handedness_meta, presence_meta, landmarks_meta, world_landmarks_meta])
+    output_metas.extend([world_landmarks_meta, presence_meta, landmarks_meta, handedness_meta])
     
     # add to subgraph
     subgraph.inputTensorMetadata = [input_meta]
