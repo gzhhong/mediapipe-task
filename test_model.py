@@ -54,27 +54,27 @@ def visualize_comparison(image, true_landmarks, pred_landmarks, title="Predictio
     
     # draw true points connection (green)
     for start, end in connections:
-        plt.plot([true_landmarks[start, 0] * image.shape[1], true_landmarks[end, 0] * image.shape[1]],
-                [true_landmarks[start, 1] * image.shape[0], true_landmarks[end, 1] * image.shape[0]],
+        plt.plot([true_landmarks[start, 0], true_landmarks[end, 0]],
+                [true_landmarks[start, 1], true_landmarks[end, 1]],
                 'g-', alpha=0.5, label='True' if start == 0 else "")
     
     # draw predicted points connection (red)
     for start, end in connections:
-        plt.plot([pred_landmarks[start, 0] * image.shape[1], pred_landmarks[end, 0] * image.shape[1]],
-                [pred_landmarks[start, 1] * image.shape[0], pred_landmarks[end, 1] * image.shape[0]],
+        plt.plot([pred_landmarks[start, 0], pred_landmarks[end, 0]],
+                [pred_landmarks[start, 1], pred_landmarks[end, 1]],
                 'r-', alpha=0.5, label='Pred' if start == 0 else "")
     
     # draw points
-    plt.scatter(true_landmarks[:, 0] * image.shape[1], true_landmarks[:, 1] * image.shape[0],
+    plt.scatter(true_landmarks[:, 0], true_landmarks[:, 1],
                c='g', s=30, label='True Points')
-    plt.scatter(pred_landmarks[:, 0] * image.shape[1], pred_landmarks[:, 1] * image.shape[0],
+    plt.scatter(pred_landmarks[:, 0], pred_landmarks[:, 1],
                c='r', s=30, label='Pred Points')
     
     # add point labels
     for i, ((tx, ty, _), (px, py, _)) in enumerate(zip(true_landmarks, pred_landmarks)):
-        plt.annotate(f'{i}', (tx * image.shape[1], ty * image.shape[0]),
+        plt.annotate(f'{i}', (tx , ty ),
                     color='g', fontsize=8)
-        plt.annotate(f'{i}', (px * image.shape[1], py * image.shape[0]),
+        plt.annotate(f'{i}', (px , py ),
                     color='r', fontsize=8)
     
     plt.legend()
@@ -130,8 +130,12 @@ def test_tflite_model(model_path):
         interpreter.invoke()
         
         # get output
-        landmarks_output = interpreter.get_tensor(output_details[0]['index'])
+        # print each element of output_details
+        for i, detail in enumerate(output_details):
+            print(f"Output detail {i}: {output_details[i]}")
         
+        landmarks_output = interpreter.get_tensor(output_details[0]['index'])
+
         print(f"Input shape (TFLite): {input_details[0]['shape']}")
         print(f"Output shape (TFLite): {output_details[0]['shape']}")
         print(f"Landmarks output (TFLite): {landmarks_output}")
@@ -207,9 +211,12 @@ def load_and_test_model(model_path):
         
         # run prediction
         predictions = model.predict(input_data)
+        # print each element of predictions
+        for i, prediction in enumerate(predictions):
+            print(f"Prediction {i}: {prediction}")
         
-        # get landmarks prediction
-        pred_landmarks = predictions['landmarks']
+        # get landmarks prediction, note, the keras model output landmarks at second position
+        pred_landmarks = predictions[1]
         print(f"Keras Output shape: {pred_landmarks.shape}")
         print(f"Keras Landmarks output: {pred_landmarks}")
         # calculate error

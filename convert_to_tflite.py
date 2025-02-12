@@ -85,10 +85,8 @@ def test_tflite_model(model_path, test_image_path):
     print(f"predict-landmarks: {landmarks}")
     landmarks = landmarks.reshape(-1, 21, 3)
     
-    # limit coordinates to [0,1] range
-    landmarks[..., :2] = np.clip(landmarks[..., :2], 0, 1)
-    landmarks[..., 2] = np.clip(landmarks[..., 2], -1, 0)
     # print landmarks and original_landmarks and their mae
+    original_landmarks = np.array(original_landmarks).reshape(1, 21, 3)
     mae = np.mean(np.abs(landmarks - original_landmarks), axis=0)
     print(f"landmarks: {landmarks}")
     print(f"original_landmarks: {original_landmarks}")
@@ -96,23 +94,25 @@ def test_tflite_model(model_path, test_image_path):
     # visualize result...
     img_display = cv2.imread(str(test_image_path))
     img_display = cv2.cvtColor(img_display, cv2.COLOR_BGR2RGB)
-    
+
+    processed_img = (processed_img[0] * 255).astype(np.uint8)  # Remove batch dimension and convert to uint8
+
     # draw keypoints and connecting lines
     for i, (x, y, z) in enumerate(landmarks[0]):
         height, width, _ = img_display.shape
-        x_px = int(x * width)
-        y_px = int(y * height)
+        x_px = int(x )
+        y_px = int(y )
         # adjust color based on z value (smaller z, darker color)
         color = (0, int(255 * (1 + z)), 0)
         # draw keypoint
-        cv2.circle(img_display, (x_px, y_px), 3, color, -1)
+        cv2.circle(processed_img, (x_px, y_px), 3, color, -1)
         # add label
-        cv2.putText(img_display, f"{i}", (x_px+4, y_px+4),
+        cv2.putText(processed_img, f"{i}", (x_px+4, y_px+4),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
     
     # save different result files for each model type
     output_image = f'tflite_test_result_{model_type}.jpg'
-    cv2.imwrite(output_image, img_display)
+    cv2.imwrite(output_image, processed_img)
     print(f"\ntest result saved to: {output_image}")
     
     # save predicted coordinates to different text files
@@ -204,7 +204,7 @@ def create_metadata():
     world_landmarks_meta.stats = _metadata_fb.StatsT()
     
     # add all output metadata to list
-    output_metas.extend([world_landmarks_meta, presence_meta, landmarks_meta, handedness_meta])
+    output_metas.extend([landmarks_meta, presence_meta, handedness_meta, world_landmarks_meta])
     
     # add to subgraph
     subgraph.inputTensorMetadata = [input_meta]
@@ -405,7 +405,7 @@ def main():
     
     # if all conversions are successful, test the models
     if float16_success and dynamic_success and float32_success:
-        test_image_path = './recorded_frames/training/frame_20250121_103734_198532_mr.jpg'
+        test_image_path = './frame_20250121_103737_986144.jpg'
         if Path(test_image_path).exists():
             print("\ntesting all converted models:")
             print("\n1. testing float16 model")

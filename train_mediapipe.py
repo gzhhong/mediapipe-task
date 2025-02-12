@@ -105,32 +105,17 @@ def create_mediapipe_model(input_shape=(IMAGE_EDGE, IMAGE_EDGE, 3)):
     x = layers.Dense(128, activation='relu')(x)
     x = layers.BatchNormalization()(x)
     
-    # coordinate prediction branch
-    def create_coordinate_branch(name, activation=None):
+    # Coordinate prediction branch
+    def create_coordinate_branch():
         coords = layers.Dense(128, activation='relu')(x)
         coords = layers.BatchNormalization()(coords)
         coords = layers.Dense(64, activation='relu')(coords)
         coords = layers.BatchNormalization()(coords)
-        coords = layers.Dense(21)(coords)
-        if isinstance(activation, str):
-            return layers.Activation(activation, name=name)(coords)
-        elif activation is not None:
-            return activation(name=name)(coords)
+        coords = layers.Dense(63, name='landmarks')(coords)
         return coords
     
-    # predict coordinates
-    x_coords = create_coordinate_branch('x_coords', 'sigmoid')
-    y_coords = create_coordinate_branch('y_coords', 'sigmoid')
-
-    # Use tanh activation for z_coords to get values in [-1, 1]
-    z_coords = create_coordinate_branch('z_coords', 'tanh')
-
-    # Scale and shift z_coords to be in [-1, 0]
-    z_coords = ScaleShiftLayer(name='z_activation')(z_coords)
-
-    # merge coordinates
-    landmarks = CoordinatesMergeLayer(name='landmarks')([x_coords, y_coords, z_coords])
-    
+    # Merge coordinates
+    landmarks = create_coordinate_branch()
     # auxiliary branch
     presence_score = layers.Dense(64, activation='relu')(x)
     presence_score = layers.BatchNormalization()(presence_score)
@@ -138,7 +123,7 @@ def create_mediapipe_model(input_shape=(IMAGE_EDGE, IMAGE_EDGE, 3)):
     
     handedness = layers.Dense(64, activation='relu')(x)
     handedness = layers.BatchNormalization()(handedness)
-    handedness = layers.Dense(2, activation='softmax', name='handedness')(handedness)
+    handedness = layers.Dense(1, activation='sigmoid', name='handedness')(handedness)
     
     world_landmarks = layers.Dense(128, activation='relu')(x)
     world_landmarks = layers.BatchNormalization()(world_landmarks)
@@ -146,26 +131,62 @@ def create_mediapipe_model(input_shape=(IMAGE_EDGE, IMAGE_EDGE, 3)):
     
     model = tf.keras.Model(
         inputs=inputs,
-        outputs={
-            'landmarks': landmarks,
-            'handedness': handedness,
-            'presence_score': presence_score,
-            'world_landmarks': world_landmarks
-        }
+        outputs=[
+            handedness,
+            landmarks,
+            world_landmarks,
+            presence_score
+        ]
     )
     
     return model
 
 def process_image_and_coords(image, coords, target_size=(IMAGE_EDGE, IMAGE_EDGE)):
-    """process image and coordinates"""
+    """Process image and 3D coordinates (landmarks) to pixel coordinates."""
     
-    # resize image to
-    image = tf.image.resize(image, target_size)
+    # Ensure coords are in the shape of (21, 3) -- 21 landmarks with x, y, z values
+    coords = tf.reshape(coords, (-1, 3))  # Reshape to (21, 3) for 21 landmarks with x, y, z
     
-    # use uniform normalization function
+    # Get the original dimensions of the image
+    original_height = tf.cast(tf.shape(image)[0], tf.float32)
+    original_width = tf.cast(tf.shape(image)[1], tf.float32)
+    
+    # Compute the scaling factor to maintain aspect ratio
+    scale = tf.minimum(target_size[0] / original_height, target_size[1] / original_width)
+    
+    # Scale the image dimensions according to the aspect ratio
+    new_height = tf.cast(original_height * scale, tf.int32)
+    new_width = tf.cast(original_width * scale, tf.int32)
+    
+    # Resize the image while maintaining the aspect ratio
+    image = tf.image.resize(image, (new_height, new_width))
+    
+    # Calculate padding for the height and width to match the target size
+    pad_height = (target_size[0] - new_height) // 2
+    pad_width = (target_size[1] - new_width) // 2
+    
+    # Apply padding to the image
+    image = tf.image.pad_to_bounding_box(image, pad_height, pad_width, target_size[0], target_size[1])
+    
+    # Normalize the image using the normalize_image function
     image = normalize_image(image)
 
-    coords = tf.reshape(coords, [-1])
+    # Adjust the coordinates (x, y) and keep the z values unchanged
+    coords_xy = coords[:, :2]  # Extract x and y coordinates
+    coords_z = coords[:, 2]    # Extract z coordinates
+    
+    # Convert the coordinates from normalized to pixel values
+    coords_xy = coords_xy * [original_width, original_height]  # Convert to pixel coordinates
+    coords_xy = coords_xy * scale  # Apply the same scaling factor as the image
+    coords_xy = coords_xy + [pad_width, pad_height]  # Add padding offsets
+    coords_z  = coords_z * target_size[1] * 0.4
+
+    # Combine the adjusted x, y with the unchanged z coordinates
+    coords = tf.concat([coords_xy, tf.expand_dims(coords_z, axis=-1)], axis=-1)
+
+    # Flatten the coords back into a 1D tensor (63 elements: 21 landmarks * 3)
+    coords = tf.reshape(coords, [-1])  # Flatten to 1D with 63 elements (21 * 3)
+
     return image, coords
 
 
@@ -191,8 +212,8 @@ def parse_tfrecord(example_proto):
     is_left_hand = tf.strings.regex_full_match(filename, ".*_mr")
     handedness = tf.cond(
         is_left_hand,
-        lambda: tf.constant([1.0, 0.0], dtype=tf.float32),  # left hand [1, 0]
-        lambda: tf.constant([0.0, 1.0], dtype=tf.float32)   # right hand [0, 1]
+        lambda: tf.constant(1.0, dtype=tf.float32),  # left hand [1, 0]
+        lambda: tf.constant(0.0, dtype=tf.float32)   # right hand [0, 1]
     )
     
     # hand presence confidence (all samples have hands, so set to 1.0)
@@ -392,7 +413,7 @@ def train_model():
         ),
         loss={
             'landmarks': custom_loss,
-            'handedness': 'categorical_crossentropy',
+            'handedness': 'binary_crossentropy',
             'presence_score': 'binary_crossentropy',
             'world_landmarks': 'mse'
         },
@@ -468,7 +489,7 @@ def train_model():
         ),
         loss={
             'landmarks': custom_loss,
-            'handedness': 'categorical_crossentropy',
+            'handedness': 'binary_crossentropy',
             'presence_score': 'binary_crossentropy',
             'world_landmarks': 'mse'
         },
